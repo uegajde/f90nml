@@ -309,7 +309,31 @@ class Parser(object):
             toks.append('\n')
             f90lex.extend(toks)
 
-        self.tokens = iter(f90lex)
+        self.tokens = NamelistTokens(f90lex, self.pfile)
+        namelist = Namelist()
+
+        # Since we modify self.tokens, we cannot iterate using a for loop
+        # TODO: Is there some way to do this safely in `NamelistTokens`?
+        while True:
+            try:
+                token = next(self.tokens)
+            except StopIteration:
+                break
+
+            if token in ('&', '$'):
+                grp_name = next(self.tokens)
+                print('-----------')
+                print(grp_name)
+
+                nml_group = self.read_group()
+
+                namelist[grp_name] = nml_group
+
+            # TODO: Parse content outside of namelists
+
+        return namelist
+
+        #--- OLD ---#
 
         nmls = Namelist()
 
@@ -403,6 +427,84 @@ class Parser(object):
                 break
 
         return nmls
+
+    def read_group(self):
+        """Parse the contents of a namelist group."""
+        # Identify the tokens associated with each variable
+        nml_group = Namelist()
+
+        # Since we modify self.tokens, we cannot iterate using a for loop
+        # TODO: Is there some way to do this safely in `NamelistTokens`?
+        while True:
+            try:
+                tok = next(self.tokens)
+            except StopIteration:
+                break
+
+            if tok in ('/', '&', '$'):
+                break
+
+            name = tok
+            print('name', name)
+            value, idx = self.read_variable()
+            print('result:', name, repr(idx), value)
+
+        return nml_group
+
+    def read_variable(self):
+        """Read the next variable record."""
+        idx = ''    # Temporarily store as a string
+
+        tok = next(self.tokens)
+        print('vartok:', tok)
+        if tok == '(':
+            # Crudely build the index string
+            idx += tok
+            while True:
+                t = next(self.tokens)
+                print(t)
+                idx += t
+                if t == ')':
+                    break
+
+            tok = next(self.tokens)
+
+        if tok == '%':
+            comp_name = next(self.tokens)
+            comp_value, comp_idx = self.read_variable()
+            # TODO: idx handler
+            value = {comp_name: comp_value}
+        else:
+            try:
+                assert(tok == '=')
+            except AssertionError:
+                print('token {} must match ='.format(repr(tok)))
+                raise
+
+            # Get the variable token length
+            self.tokens, lookahead = itertools.tee(self.tokens)
+
+            ntoks = 0
+            prior_tok = None
+            for tok in lookahead:
+                ntoks += 1
+                if (tok in ('=', '(', '%') and prior_tok and
+                        is_f90_name(prior_tok)):
+                    ntoks = ntoks - 2
+                    break
+                elif tok in ('/', '&', '$'):
+                    ntoks = ntoks - 1
+                    break
+
+                prior_tok = tok
+                continue
+            print('  ntoks:', ntoks)
+
+            # Just append the tokens, dont process them right now
+            value_tokens = itertools.islice(self.tokens, ntoks)
+            value = list(value_tokens)
+
+        return value, idx
 
     def _parse_variable(self, parent, patch_nml=None):
         """Parse a variable and return its name and values."""
@@ -920,3 +1022,53 @@ def count_values(tokens):
             ntoks += 1
 
     return ntoks
+
+
+def read_value(tokens):
+    """Parse the value tokens."""
+    # Testing
+    val_tokens = []
+
+    tokens, lookahead = itertools.tee(tokens)
+    ntoks = 0
+    for tok in lookahead:
+        if tok in ('=', '/', '&', '$'):
+            break
+        else:
+            val_tokens.append(tok)
+        ntoks += 1
+
+    if tok == '=':
+        tokens = itertools.islice(tokens, ntoks)
+        print(val_tokens[:-1])
+    else:
+        tokens = itertools.islice(tokens, ntoks + 1)
+        print(val_tokens)
+
+    return None
+
+
+def is_f90_name(name):
+    # TODO: Warn on names longer than 63 character
+    return name[0].isalpha() and name.isidentifier() and len(name) < 64
+
+
+class NamelistTokens(object):
+    def __init__(self, tokens, pfile):
+        self.tokens = iter(tokens)
+
+    def __iter__(self):
+        return self
+
+    # Python 2 compatibility
+    def next(self):
+        return self.__next__()
+
+    def __next__(self):
+        tok = next(self.tokens)
+
+        # Skip whitespace and comments
+        while tok.isspace() or tok.startswith('!'):
+            tok = next(self.tokens)
+
+        return tok
