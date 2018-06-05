@@ -321,12 +321,7 @@ class Parser(object):
                 break
 
             if token in ('&', '$'):
-                grp_name = next(self.tokens)
-                print('-----------')
-                print(grp_name)
-
-                nml_group = self.read_group()
-
+                grp_name, nml_group = self.read_group()
                 namelist[grp_name] = nml_group
 
             # TODO: Parse content outside of namelists
@@ -431,49 +426,49 @@ class Parser(object):
     def read_group(self):
         """Parse the contents of a namelist group."""
         # Identify the tokens associated with each variable
+        group_name = next(self.tokens)
         nml_group = Namelist()
 
-        # Since we modify self.tokens, we cannot iterate using a for loop
+        # Since we modify self.tokens, we cannot iterate with a for loop.
         # TODO: Is there some way to do this safely in `NamelistTokens`?
         while True:
             try:
-                tok = next(self.tokens)
+                name, index, value = self.read_variable()
             except StopIteration:
                 break
 
-            if tok in ('/', '&', '$'):
-                break
+            print('result:', name, index, value)
+            # TODO: Use index to convert value to list
+            nml_group[name] = value
 
-            name = tok
-            print('name', name)
-            value, idx = self.read_variable()
-            print('result:', name, repr(idx), value)
-
-        return nml_group
+        return group_name, nml_group
 
     def read_variable(self):
         """Read the next variable record."""
-        idx = ''    # Temporarily store as a string
+        tok = next(self.tokens)
+        if tok in ('/', '$', '&'):
+            raise StopIteration
+        else:
+            assert(is_f90_name(tok))
+            name = tok
 
         tok = next(self.tokens)
-        print('vartok:', tok)
+        # TODO: Integrate this operation into parse_indices
         if tok == '(':
-            # Crudely build the index string
-            idx += tok
-            while True:
-                t = next(self.tokens)
-                print(t)
-                idx += t
-                if t == ')':
-                    break
+            # XXX: Only setting prior_token to reuse the function
+            # XXX: Don't use 'bla'!
+            self.token = tok
+            self.prior_token = name
+            index = self._parse_indices()
 
             tok = next(self.tokens)
+        else:
+            index = []
 
         if tok == '%':
-            comp_name = next(self.tokens)
-            comp_value, comp_idx = self.read_variable()
+            comp_name, comp_idx, comp_value = self.read_variable()
             # TODO: idx handler
-            value = {comp_name: comp_value}
+            values = {comp_name: comp_value}
         else:
             try:
                 assert(tok == '=')
@@ -498,13 +493,53 @@ class Parser(object):
 
                 prior_tok = tok
                 continue
-            print('  ntoks:', ntoks)
 
-            # Just append the tokens, dont process them right now
             value_tokens = itertools.islice(self.tokens, ntoks)
-            value = list(value_tokens)
+            values = self.read_value(value_tokens)
 
-        return value, idx
+        return name, index, values
+
+    def read_value(self, tokens):
+        """Parse the value tokens."""
+        values = []
+        prior_tok = None
+        for tok in tokens:
+            if tok == ',':
+                if prior_tok == ',' or prior_tok is None:
+                    values.append(None)
+                prior_tok = tok
+                continue
+            elif tok == '(':
+                # Construct the complex string
+                # TODO: Un-tokenize the tokenized value?  Maybe don't do this.
+                v_re = next(tokens)
+                assert next(tokens) == ','
+
+                v_im = next(tokens)
+                assert next(tokens) == ')'
+
+                v_str = '({0}, {1})'.format(v_re, v_im)
+            else:
+                v_str = tok
+
+            recast_funcs = [int, pyfloat, pycomplex, pybool, pystr]
+
+            for f90type in recast_funcs:
+                try:
+                    # Unclever hack.. integrate this better
+                    if f90type == pybool:
+                        value = pybool(v_str, self.strict_logical)
+                    else:
+                        value = f90type(v_str)
+                    break
+                except ValueError:
+                    continue
+
+            values.append(value)
+            prior_tok = tok
+
+        print('values', values)
+        return values
 
     def _parse_variable(self, parent, patch_nml=None):
         """Parse a variable and return its name and values."""
@@ -1024,28 +1059,7 @@ def count_values(tokens):
     return ntoks
 
 
-def read_value(tokens):
-    """Parse the value tokens."""
-    # Testing
-    val_tokens = []
-
-    tokens, lookahead = itertools.tee(tokens)
-    ntoks = 0
-    for tok in lookahead:
-        if tok in ('=', '/', '&', '$'):
-            break
-        else:
-            val_tokens.append(tok)
-        ntoks += 1
-
-    if tok == '=':
-        tokens = itertools.islice(tokens, ntoks)
-        print(val_tokens[:-1])
-    else:
-        tokens = itertools.islice(tokens, ntoks + 1)
-        print(val_tokens)
-
-    return None
+# --- new functions
 
 
 def is_f90_name(name):
