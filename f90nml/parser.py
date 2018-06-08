@@ -438,9 +438,27 @@ class Parser(object):
             except StopIteration:
                 break
 
-            print('result:', name, index, value)
             # TODO: Use index to convert value to list
-            nml_group[name] = value
+            print('result:', name, index, value)
+
+            # Update the current group
+            key, grp, patch = name, nml_group, value
+            while key in grp:
+                grp = grp[key]
+
+                if isinstance(patch, dict):
+                    assert(len(patch.keys()) == 1)
+                    key = next(iter(patch.keys()))
+                    patch = patch[key]
+                else:
+                    break
+
+            if key in grp:
+                grp[key].update(patch)
+            else:
+                # Skip over lists, still not updating these
+                if isinstance(grp, list): continue
+                grp[key] = patch
 
         return group_name, nml_group
 
@@ -466,8 +484,8 @@ class Parser(object):
             index = []
 
         if tok == '%':
-            comp_name, comp_idx, comp_value = self.read_variable()
             # TODO: idx handler
+            comp_name, comp_idx, comp_value = self.read_variable()
             values = {comp_name: comp_value}
         else:
             try:
