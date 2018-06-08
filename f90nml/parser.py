@@ -326,6 +326,7 @@ class Parser(object):
 
             # TODO: Parse content outside of namelists
 
+        print(namelist)
         return namelist
 
         #--- OLD ---#
@@ -455,8 +456,7 @@ class Parser(object):
         tok = next(self.tokens)
         # TODO: Integrate this operation into parse_indices
         if tok == '(':
-            # XXX: Only setting prior_token to reuse the function
-            # XXX: Don't use 'bla'!
+            # XXX: Only setting token and prior_token to recycle parse_indices
             self.token = tok
             self.prior_token = name
             index = self._parse_indices()
@@ -501,14 +501,28 @@ class Parser(object):
 
     def read_value(self, tokens):
         """Parse the value tokens."""
+        # NOTE: This is a recycled version of _parse_valuable
         values = []
+        n_vals = None
         prior_tok = None
         for tok in tokens:
             if tok == ',':
                 if prior_tok == ',' or prior_tok is None:
                     values.append(None)
+                elif prior_tok == '*':
+                    values += n_vals * [None]
+                    n_vals = None
+
                 prior_tok = tok
                 continue
+
+            elif tok == '*':
+                # Use the prior token that was (incorrectly) stored as a value
+                n_vals = values.pop()
+                assert(isinstance(n_vals, int))
+                prior_tok = tok
+                continue
+
             elif tok == '(':
                 # Construct the complex string
                 # TODO: Un-tokenize the tokenized value?  Maybe don't do this.
@@ -519,9 +533,11 @@ class Parser(object):
                 assert next(tokens) == ')'
 
                 v_str = '({0}, {1})'.format(v_re, v_im)
+
             else:
                 v_str = tok
 
+            # XXX: This is an old codeblock that might warrant a rewrite
             recast_funcs = [int, pyfloat, pycomplex, pybool, pystr]
 
             for f90type in recast_funcs:
@@ -535,10 +551,19 @@ class Parser(object):
                 except ValueError:
                     continue
 
-            values.append(value)
+            # NOTE: n_vals could default to 1 and consolidate these operations
+            if n_vals:
+                values += n_vals * [value]
+                n_vals = None
+            else:
+                values.append(value)
+
             prior_tok = tok
 
-        print('values', values)
+        # Append any final null repeating values
+        if tok == '*':
+            values += n_vals * [None]
+
         return values
 
     def _parse_variable(self, parent, patch_nml=None):
