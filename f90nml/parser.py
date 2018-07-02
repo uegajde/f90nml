@@ -430,35 +430,18 @@ class Parser(object):
         group_name = next(self.tokens)
         nml_group = Namelist()
 
-        # Since we modify self.tokens, we cannot iterate with a for loop.
+        # Since we periodically replace self.tokens using itertools.tee, we
+        # cannot iterate with a for loop.
         # TODO: Is there some way to do this safely in `NamelistTokens`?
         while True:
+            print('status:', group_name, nml_group.todict())
             try:
-                name, index, value = self.read_variable()
+                var = self.read_variable()
             except StopIteration:
                 break
 
-            # TODO: Use index to convert value to list
-            print('result:', name, index, value)
-
-            # Update the current group
-            key, grp, patch = name, nml_group, value
-            while key in grp:
-                grp = grp[key]
-
-                if isinstance(patch, dict):
-                    assert(len(patch.keys()) == 1)
-                    key = next(iter(patch.keys()))
-                    patch = patch[key]
-                else:
-                    break
-
-            if key in grp:
-                grp[key].update(patch)
-            else:
-                # Skip over lists, still not updating these
-                if isinstance(grp, list): continue
-                grp[key] = patch
+            print('result:', var)
+            self.update_group(nml_group, var)
 
         return group_name, nml_group
 
@@ -484,9 +467,7 @@ class Parser(object):
             index = []
 
         if tok == '%':
-            # TODO: idx handler
-            comp_name, comp_idx, comp_value = self.read_variable()
-            values = {comp_name: comp_value}
+            values = self.read_variable()
         else:
             try:
                 assert(tok == '=')
@@ -501,6 +482,7 @@ class Parser(object):
             prior_tok = None
             for tok in lookahead:
                 ntoks += 1
+                # TODO: Should is_f90_name support None?
                 if (tok in ('=', '(', '%') and prior_tok and
                         is_f90_name(prior_tok)):
                     ntoks = ntoks - 2
@@ -515,7 +497,7 @@ class Parser(object):
             value_tokens = itertools.islice(self.tokens, ntoks)
             values = self.read_value(value_tokens)
 
-        return name, index, values
+        return (name, index), values
 
     def read_value(self, tokens):
         """Parse the value tokens."""
@@ -583,6 +565,36 @@ class Parser(object):
             values += n_vals * [None]
 
         return values
+
+    # NOTE: Looking like this can be moved out of the class
+    def update_group(self, grp, var):
+        (name, index), value = var
+
+        if name in grp:
+            if isinstance(grp[name], dict):
+                self.update_group(grp[name], value)
+            elif isinstance(grp[name], list):
+                # TODO: list merge, for now just override
+                grp[name] = self.nml_value(value)
+            else:
+                # Just override the value
+                grp[name] = self.nml_value(value)
+        else:
+            # TODO: handle index
+            grp[name] = self.nml_value(value)
+
+    def nml_value(self, value):
+        """Unpack the value tuple and return the value."""
+        if isinstance(value, tuple):
+            result = Namelist()
+
+            (name, index), subvalue = value
+            # TODO: Handle index
+            result[name] = self.nml_value(subvalue)
+        else:
+            result = value
+
+        return result
 
     def _parse_variable(self, parent, patch_nml=None):
         """Parse a variable and return its name and values."""
