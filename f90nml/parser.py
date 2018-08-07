@@ -434,14 +434,14 @@ class Parser(object):
         # cannot iterate with a for loop.
         # TODO: Is there some way to do this safely in `NamelistTokens`?
         while True:
-            print('status:', group_name, nml_group.todict())
             try:
                 var = self.read_variable()
             except StopIteration:
                 break
 
-            print('result:', var)
+            print('record:', var)
             self.update_group(nml_group, var)
+            print('status:', group_name, nml_group.todict())
 
         return group_name, nml_group
 
@@ -457,7 +457,8 @@ class Parser(object):
         tok = next(self.tokens)
         # TODO: Integrate this operation into parse_indices
         if tok == '(':
-            # XXX: Only setting token and prior_token to recycle parse_indices
+            # XXX: Only setting token and prior_token so that I can re-use
+            #      parse_indices.  Eventually, this will be pared down.
             self.token = tok
             self.prior_token = name
             index = self._parse_indices()
@@ -497,11 +498,11 @@ class Parser(object):
             value_tokens = itertools.islice(self.tokens, ntoks)
             values = self.read_value(value_tokens)
 
-        return (name, index), values
+        return name, index, values
 
     def read_value(self, tokens):
         """Parse the value tokens."""
-        # NOTE: This is a recycled version of _parse_valuable
+        # NOTE: This is a recycled version of _parse_value
         values = []
         n_vals = None
         prior_tok = None
@@ -561,40 +562,72 @@ class Parser(object):
             prior_tok = tok
 
         # Append any final null repeating values
+        # XXX: should 0 and 1 be lists?
         if tok == '*':
             values += n_vals * [None]
 
         return values
 
-    # NOTE: Looking like this can be moved out of the class
     def update_group(self, grp, var):
-        (name, index), value = var
+        name, index_bounds, new_values = var
 
+        # Get any existing values
+        # TODO: Combine with the next block, it will clean up some of this
         if name in grp:
-            if isinstance(grp[name], dict):
-                self.update_group(grp[name], value)
-            elif isinstance(grp[name], list):
-                # TODO: list merge, for now just override
-                grp[name] = self.nml_value(value)
+            values = grp[name]
+        elif isinstance(new_values, tuple) and not index_bounds:
+            values = {}
+        else:
+            values = []
+
+        # TODO: This block could be combined with the prior condition block
+        #if isinstance(values, dict) or isinstance(new_values, tuple):
+        if isinstance(values, dict):
+            self.update_group(values, new_values)
+        else:
+            print('new_values', new_values)
+
+            # NOTE: This assumes new_values and len(list(indices)) is identical
+            if index_bounds:
+                indices = FIndex(index_bounds, self.global_start_index)
+
+                if isinstance(new_values, tuple):
+                    i_values = iter([new_values])
+                else:
+                    i_values = iter(new_values)
+
+                for idx, val in zip(indices, i_values):
+                    # XXX: This only supports one-dimensional vectors
+                    # XXX: Also don't assume 1-indexing
+                    i = idx[0] - 1
+
+                    if i > (len(values) - 1):
+                        pad = i - len(values) + 1
+                        values.extend([None for _ in range(pad)])
+
+                    if isinstance(val, tuple):
+                        self.update_group(values[i], val)
+                    else:
+                        values[i] = val
             else:
-                # Just override the value
-                grp[name] = self.nml_value(value)
-        else:
-            # TODO: handle index
-            grp[name] = self.nml_value(value)
+                # TODO: Integrate this into the index loop?
+                values = new_values
 
-    def nml_value(self, value):
-        """Unpack the value tuple and return the value."""
-        if isinstance(value, tuple):
-            result = Namelist()
+        grp[name] = values
 
-            (name, index), subvalue = value
-            # TODO: Handle index
-            result[name] = self.nml_value(subvalue)
-        else:
-            result = value
+    #def nml_values(self, value):
+    #    """Unpack the value tuple and return the value."""
+    #    # XXX: Is this really necessary?
+    #    if isinstance(value, tuple):
+    #        result = Namelist()
 
-        return result
+    #        (name, index), subvalue = value
+    #        # TODO: Handle index
+    #        result[name] = self.nml_values(subvalue)
+    #    else:
+    #        result = value
+
+    #    return result
 
     def _parse_variable(self, parent, patch_nml=None):
         """Parse a variable and return its name and values."""
