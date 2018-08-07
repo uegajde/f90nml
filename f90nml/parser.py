@@ -441,7 +441,7 @@ class Parser(object):
 
             print('record:', var)
             self.update_group(nml_group, var)
-            print('status:', group_name, nml_group.todict())
+            print('status:', group_name, nml_group)
 
         return group_name, nml_group
 
@@ -465,7 +465,7 @@ class Parser(object):
 
             tok = next(self.tokens)
         else:
-            index = []
+            index = []  # TODO: Perhaps use `None` here
 
         if tok == '%':
             values = self.read_variable()
@@ -576,18 +576,15 @@ class Parser(object):
         if name in grp:
             values = grp[name]
         elif isinstance(new_values, tuple) and not index_bounds:
-            values = {}
+            values = Namelist()
         else:
             values = []
 
         # TODO: This block could be combined with the prior condition block
-        #if isinstance(values, dict) or isinstance(new_values, tuple):
         if isinstance(values, dict):
             self.update_group(values, new_values)
         else:
-            print('new_values', new_values)
-
-            # NOTE: This assumes new_values and len(list(indices)) is identical
+            # NOTE: This assumes new_values and indices have identical length
             if index_bounds:
                 indices = FIndex(index_bounds, self.global_start_index)
 
@@ -606,28 +603,15 @@ class Parser(object):
                         values.extend([None for _ in range(pad)])
 
                     if isinstance(val, tuple):
+                        if values[i] is None:
+                            values[i] = Namelist()
                         self.update_group(values[i], val)
                     else:
                         values[i] = val
             else:
-                # TODO: Integrate this into the index loop?
                 values = new_values
 
         grp[name] = values
-
-    #def nml_values(self, value):
-    #    """Unpack the value tuple and return the value."""
-    #    # XXX: Is this really necessary?
-    #    if isinstance(value, tuple):
-    #        result = Namelist()
-
-    #        (name, index), subvalue = value
-    #        # TODO: Handle index
-    #        result[name] = self.nml_values(subvalue)
-    #    else:
-    #        result = value
-
-    #    return result
 
     def _parse_variable(self, parent, patch_nml=None):
         """Parse a variable and return its name and values."""
