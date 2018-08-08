@@ -439,9 +439,9 @@ class Parser(object):
             except StopIteration:
                 break
 
-            print('record:', var)
+            #print('record:', var)
             self.update_group(nml_group, var)
-            print('status:', group_name, nml_group)
+            #print('status:', group_name, nml_group)
 
         return group_name, nml_group
 
@@ -572,7 +572,6 @@ class Parser(object):
         name, index_bounds, new_values = var
 
         # Get any existing values
-        # TODO: Combine with the next block, it will clean up some of this
         if name in grp:
             values = grp[name]
         elif isinstance(new_values, tuple) and not index_bounds:
@@ -580,7 +579,6 @@ class Parser(object):
         else:
             values = []
 
-        # TODO: This block could be combined with the prior condition block
         if isinstance(values, dict):
             self.update_group(values, new_values)
         else:
@@ -588,6 +586,10 @@ class Parser(object):
             if index_bounds:
                 indices = FIndex(index_bounds, self.global_start_index)
 
+                # We awkwardly store a dtype as a tuple, but all other values
+                # are repacked into a list.  So here we convert that tuple to
+                # a list.
+                # At the least, this is inconsistent and should be looked into.
                 if isinstance(new_values, tuple):
                     i_values = iter([new_values])
                 else:
