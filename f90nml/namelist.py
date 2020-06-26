@@ -406,7 +406,7 @@ class Namelist(OrderedDict):
             raise TypeError('start_index attribute must be a dict.')
         self._start_index = value
 
-    def write(self, nml_path, force=False, sort=False):
+    def write(self, nml_path, force=False, sort=False, align=False):
         """Write Namelist to a Fortran 90 namelist file.
 
         >>> nml = f90nml.read('input.nml')
@@ -418,7 +418,7 @@ class Namelist(OrderedDict):
 
         nml_file = nml_path if nml_is_file else open(nml_path, 'w')
         try:
-            self._writestream(nml_file, sort)
+            self._writestream(nml_file, sort, align)
         finally:
             if not nml_is_file:
                 nml_file.close()
@@ -462,7 +462,7 @@ class Namelist(OrderedDict):
             for inner_key, inner_value in value.items():
                 yield (key, inner_key), inner_value
 
-    def _writestream(self, nml_file, sort=False):
+    def _writestream(self, nml_file, sort=False, align=False):
         """Output Namelist to a streamable file object."""
         # Reset newline flag
         self._newline = False
@@ -476,11 +476,11 @@ class Namelist(OrderedDict):
             # Check for repeated namelist records (saved as lists)
             if isinstance(grp_vars, list):
                 for g_vars in grp_vars:
-                    self._write_nmlgrp(grp_name, g_vars, nml_file, sort)
+                    self._write_nmlgrp(grp_name, g_vars, nml_file, sort, align)
             else:
-                self._write_nmlgrp(grp_name, grp_vars, nml_file, sort)
+                self._write_nmlgrp(grp_name, grp_vars, nml_file, sort, align)
 
-    def _write_nmlgrp(self, grp_name, grp_vars, nml_file, sort=False):
+    def _write_nmlgrp(self, grp_name, grp_vars, nml_file, sort=False, align=False):
         """Write namelist group to target file."""
         if self._newline:
             print(file=nml_file)
@@ -492,11 +492,17 @@ class Namelist(OrderedDict):
         if sort:
             grp_vars = Namelist(sorted(grp_vars.items(), key=lambda t: t[0]))
 
+        if align and bool(grp_vars.keys()):
+            v_name_maxlen = max(len(x) for x in grp_vars.keys())
+
         print('&{0}'.format(grp_name), file=nml_file)
 
         for v_name, v_val in grp_vars.items():
 
             v_start = grp_vars.start_index.get(v_name, None)
+
+            if align:
+                v_name = v_name.ljust(v_name_maxlen)
 
             for v_str in self._var_strings(v_name, v_val, v_start=v_start):
                 nml_line = self.indent + '{0}'.format(v_str)
